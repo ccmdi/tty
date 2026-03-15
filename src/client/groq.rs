@@ -69,12 +69,21 @@ impl LlmClient for GroqClient {
             body["tool_choice"] = json!({ "type": "function", "function": { "name": "run_command" } });
         }
 
-        let response: serde_json::Value = ureq::post(&self.endpoint)
+        let resp = ureq::post(&self.endpoint)
             .header("Authorization", &format!("Bearer {}", self.api_key))
             .header("Content-Type", "application/json")
-            .send_json(&body)?
-            .body_mut()
-            .read_json()?;
+            .send_json(&body);
+
+        let response: serde_json::Value = match resp {
+            Ok(mut r) => r.body_mut().read_json()?,
+            Err(ureq::Error::StatusCode(429)) => {
+                anyhow::bail!("rate limited by API -- wait a moment and try again")
+            }
+            Err(ureq::Error::StatusCode(401)) => {
+                anyhow::bail!("invalid API key")
+            }
+            Err(e) => return Err(e.into()),
+        };
 
         let command = parse_tool_call(&response)?;
 
