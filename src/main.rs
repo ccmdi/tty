@@ -1,4 +1,6 @@
 mod client;
+mod config;
+mod detect;
 mod exec;
 mod prompt;
 mod ui;
@@ -6,19 +8,32 @@ mod ui;
 use std::io::IsTerminal;
 
 use anyhow::{bail, Result};
-use client::{LlmClient, groq::GroqClient};
+use client::LlmClient;
 
 struct Args {
     think: bool,
     show_reasoning: bool,
-    query: String,
+    command: Command,
+}
+
+enum Command {
+    Query(String),
+    Init,
 }
 
 fn parse_args() -> Result<Args> {
     let args: Vec<String> = std::env::args().skip(1).collect();
 
     if args.is_empty() {
-        bail!("Usage: tty \"your request\"\n       tty --think \"your request\"");
+        bail!("Usage: tty \"your request\"\n       tty --think \"your request\"\n       tty init");
+    }
+
+    if args[0] == "init" {
+        return Ok(Args {
+            think: false,
+            show_reasoning: false,
+            command: Command::Init,
+        });
     }
 
     let mut think = false;
@@ -46,16 +61,41 @@ fn parse_args() -> Result<Args> {
     Ok(Args {
         think,
         show_reasoning,
-        query: rest.join(" "),
+        command: Command::Query(rest.join(" ")),
     })
+}
+
+fn build_client(cfg: &config::Config) -> Result<Box<dyn LlmClient>> {
+    match cfg.client.provider.as_str() {
+        "groq" => Ok(Box::new(client::groq::GroqClient::from_config(&cfg.client)?)),
+        "ollama" => Ok(Box::new(client::ollama::OllamaClient {
+            endpoint: cfg.client.endpoint.clone(),
+            model: cfg.client.model.clone(),
+            temperature: cfg.client.temperature,
+            max_tokens: cfg.client.max_tokens,
+        })),
+        other => bail!("unknown provider: {other}. supported: groq, ollama"),
+    }
 }
 
 fn run() -> Result<()> {
     let args = parse_args()?;
 
-    let client = GroqClient::from_env()?;
-    let system = prompt::build_system_prompt();
-    let result = client.complete(&system, &args.query, args.think)?;
+    if let Command::Init = args.command {
+        return config::Config::init();
+    }
+
+    let query = match &args.command {
+        Command::Query(q) => q,
+        _ => unreachable!(),
+    };
+
+    let cfg = config::Config::load()?;
+    let show_reasoning = args.show_reasoning || cfg.behavior.show_reasoning;
+
+    let client = build_client(&cfg)?;
+    let system = prompt::build_system_prompt(&cfg.context);
+    let result = client.complete(&system, query, args.think)?;
 
     let is_tty = std::io::stdout().is_terminal();
 
@@ -64,11 +104,20 @@ fn run() -> Result<()> {
         return Ok(());
     }
 
-    let explanation = if args.show_reasoning {
+    let explanation = if show_reasoning {
         result.explanation.as_deref()
     } else {
         None
     };
+
+    if cfg.behavior.auto_execute {
+        if let Some(exp) = explanation {
+            eprintln!("\x1b[2m{exp}\x1b[0m\n");
+        }
+        eprintln!("\x1b[1;32m>\x1b[0m {}", result.command);
+        let code = exec::run_command(&result.command)?;
+        std::process::exit(code);
+    }
 
     match ui::confirm_command(&result.command, explanation)? {
         ui::Action::Execute => {

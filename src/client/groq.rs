@@ -1,7 +1,8 @@
-use anyhow::{Context, Result};
+use anyhow::Result;
 use serde_json::json;
 
 use super::{CommandResult, LlmClient, parse_tool_call};
+use crate::config::ClientConfig;
 
 pub struct GroqClient {
     pub api_key: String,
@@ -11,14 +12,16 @@ pub struct GroqClient {
 }
 
 impl GroqClient {
-    pub fn from_env() -> Result<Self> {
-        let api_key =
-            std::env::var("GROQ_API_KEY").context("GROQ_API_KEY environment variable not set")?;
+    pub fn from_config(config: &ClientConfig) -> Result<Self> {
+        let api_key = config
+            .api_key
+            .clone()
+            .ok_or_else(|| anyhow::anyhow!("API key not set. Run `tty init` or set GROQ_API_KEY"))?;
         Ok(Self {
             api_key,
-            endpoint: "https://api.groq.com/openai/v1/chat/completions".into(),
-            model: "qwen/qwen3-32b".into(),
-            temperature: 0.2,
+            endpoint: config.endpoint.clone(),
+            model: config.model.clone(),
+            temperature: config.temperature,
         })
     }
 }

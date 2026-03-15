@@ -1,4 +1,5 @@
 pub mod groq;
+pub mod ollama;
 
 use anyhow::Result;
 
