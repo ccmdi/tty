@@ -3,6 +3,7 @@ mod config;
 mod detect;
 mod exec;
 mod prompt;
+mod research;
 mod ui;
 
 use std::io::IsTerminal;
@@ -12,6 +13,7 @@ use client::LlmClient;
 
 struct Args {
     think: bool,
+    research: bool,
     show_reasoning: bool,
     command: Command,
 }
@@ -31,12 +33,14 @@ fn parse_args() -> Result<Args> {
     if args[0] == "init" {
         return Ok(Args {
             think: false,
+            research: false,
             show_reasoning: false,
             command: Command::Init,
         });
     }
 
     let mut think = false;
+    let mut research = false;
     let mut show_reasoning = false;
     let mut rest = &args[..];
 
@@ -44,6 +48,10 @@ fn parse_args() -> Result<Args> {
         match rest[0].as_str() {
             "--think" => {
                 think = true;
+                rest = &rest[1..];
+            }
+            "--research" | "-r" => {
+                research = true;
                 rest = &rest[1..];
             }
             "--show-reasoning" => {
@@ -60,6 +68,7 @@ fn parse_args() -> Result<Args> {
 
     Ok(Args {
         think,
+        research,
         show_reasoning,
         command: Command::Query(rest.join(" ")),
     })
@@ -92,10 +101,14 @@ fn run() -> Result<()> {
 
     let cfg = config::Config::load()?;
     let show_reasoning = args.show_reasoning || cfg.behavior.show_reasoning;
-
-    let client = build_client(&cfg)?;
     let system = prompt::build_system_prompt(&cfg.context);
-    let result = client.complete(&system, query, args.think)?;
+
+    let result = if args.research {
+        research::research(&cfg.client, &system, query)?
+    } else {
+        let client = build_client(&cfg)?;
+        client.complete(&system, query, args.think)?
+    };
 
     let is_tty = std::io::stdout().is_terminal();
 
