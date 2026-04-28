@@ -43,6 +43,10 @@ pub struct BehaviorConfig {
     pub auto_execute: bool,
     #[serde(default)]
     pub show_reasoning: bool,
+    #[serde(default = "default_true")]
+    pub auto_retry: bool,
+    #[serde(default = "default_true")]
+    pub shell_history: bool,
 }
 
 impl Default for BehaviorConfig {
@@ -50,8 +54,14 @@ impl Default for BehaviorConfig {
         Self {
             auto_execute: false,
             show_reasoning: false,
+            auto_retry: true,
+            shell_history: true,
         }
     }
+}
+
+fn default_true() -> bool {
+    true
 }
 
 fn default_temperature() -> f64 {

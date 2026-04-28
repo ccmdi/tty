@@ -112,8 +112,16 @@ fn run() -> Result<()> {
     let cfg = config::Config::load()?;
     if debug { eprintln!("\x1b[2m[debug] config loaded in {:?}\x1b[0m", t0.elapsed()); }
 
+    let history = if cfg.behavior.shell_history {
+        let h = prompt::read_shell_history(10);
+        if debug { eprintln!("\x1b[2m[debug] read {} history entries in {:?}\x1b[0m", h.len(), t0.elapsed()); }
+        Some(h)
+    } else {
+        None
+    };
+
     let show_reasoning = args.show_reasoning || cfg.behavior.show_reasoning;
-    let system = prompt::build_system_prompt(&cfg.context);
+    let system = prompt::build_system_prompt(&cfg.context, history.as_deref());
     if debug { eprintln!("\x1b[2m[debug] prompt built in {:?}\x1b[0m", t0.elapsed()); }
 
     let t_api = std::time::Instant::now();
@@ -150,8 +158,34 @@ fn run() -> Result<()> {
 
     match ui::confirm_command(&result.command, explanation)? {
         ui::Action::Execute => {
-            let code = exec::run_command(&result.command)?;
-            std::process::exit(code);
+            if cfg.behavior.auto_retry && !args.research {
+                let client = build_client(&cfg)?;
+                let mut cmd = result.command;
+                let mut retries = 0;
+                loop {
+                    let outcome = exec::run_command_captured(&cmd)?;
+                    if outcome.code == 0 || retries >= 3 {
+                        std::process::exit(outcome.code);
+                    }
+                    retries += 1;
+                    let stderr_truncated: String = outcome.stderr.chars().take(500).collect();
+                    let retry_query = format!(
+                        "{query}\n\nPrevious command `{cmd}` failed with:\n{stderr_truncated}\nSuggest a corrected command."
+                    );
+                    eprintln!("\x1b[2m  retrying...\x1b[0m");
+                    let retry = client.complete(&system, &retry_query, false)?;
+                    if retry.command == cmd {
+                        std::process::exit(outcome.code);
+                    }
+                    match ui::confirm_command(&retry.command, None)? {
+                        ui::Action::Execute => { cmd = retry.command; }
+                        ui::Action::Cancel => { std::process::exit(outcome.code); }
+                    }
+                }
+            } else {
+                let code = exec::run_command(&result.command)?;
+                std::process::exit(code);
+            }
         }
         ui::Action::Cancel => {}
     }
