@@ -1,6 +1,6 @@
 # tty
 
-Natural language to shell commands. Describe what you want, get a command, confirm, run.
+Natural language to shell commands. Describe what you want, get a command instantly, confirm, run.
 
 ## Usage
 
@@ -105,3 +105,6 @@ tty init
 ```
 
 Supports Groq and Ollama backends. Auto-detects your OS, shell, and installed tools (fd, rg, jq, etc.) to tailor suggestions to your environment.
+
+> [!IMPORTANT]
+> This is a proof of concept.
