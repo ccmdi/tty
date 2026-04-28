@@ -15,6 +15,7 @@ struct Args {
     think: bool,
     research: bool,
     show_reasoning: bool,
+    debug: bool,
     command: Command,
 }
 
@@ -35,6 +36,7 @@ fn parse_args() -> Result<Args> {
             think: false,
             research: false,
             show_reasoning: false,
+            debug: false,
             command: Command::Init,
         });
     }
@@ -42,6 +44,7 @@ fn parse_args() -> Result<Args> {
     let mut think = false;
     let mut research = false;
     let mut show_reasoning = false;
+    let mut debug = false;
     let mut rest = &args[..];
 
     while !rest.is_empty() {
@@ -58,6 +61,10 @@ fn parse_args() -> Result<Args> {
                 show_reasoning = true;
                 rest = &rest[1..];
             }
+            "--debug" => {
+                debug = true;
+                rest = &rest[1..];
+            }
             _ => break,
         }
     }
@@ -70,6 +77,7 @@ fn parse_args() -> Result<Args> {
         think,
         research,
         show_reasoning,
+        debug,
         command: Command::Query(rest.join(" ")),
     })
 }
@@ -88,7 +96,9 @@ fn build_client(cfg: &config::Config) -> Result<Box<dyn LlmClient>> {
 }
 
 fn run() -> Result<()> {
+    let t0 = std::time::Instant::now();
     let args = parse_args()?;
+    let debug = args.debug;
 
     if let Command::Init = args.command {
         return config::Config::init();
@@ -100,15 +110,21 @@ fn run() -> Result<()> {
     };
 
     let cfg = config::Config::load()?;
+    if debug { eprintln!("\x1b[2m[debug] config loaded in {:?}\x1b[0m", t0.elapsed()); }
+
     let show_reasoning = args.show_reasoning || cfg.behavior.show_reasoning;
     let system = prompt::build_system_prompt(&cfg.context);
+    if debug { eprintln!("\x1b[2m[debug] prompt built in {:?}\x1b[0m", t0.elapsed()); }
 
+    let t_api = std::time::Instant::now();
     let result = if args.research {
         research::research(&cfg.client, &system, query)?
     } else {
         let client = build_client(&cfg)?;
         client.complete(&system, query, args.think)?
     };
+    if debug { eprintln!("\x1b[2m[debug] api call took {:?}\x1b[0m", t_api.elapsed()); }
+    if debug { eprintln!("\x1b[2m[debug] total so far {:?}\x1b[0m", t0.elapsed()); }
 
     let is_tty = std::io::stdout().is_terminal();
 

@@ -59,9 +59,16 @@ fn detect_shell() -> String {
         .unwrap_or_else(|| "sh".into())
 }
 
+fn is_local_path(dir: &PathBuf) -> bool {
+    let s = dir.to_string_lossy();
+    !s.starts_with("/mnt/")
+}
+
 fn detect_tools() -> Vec<String> {
     let path_var = std::env::var("PATH").unwrap_or_default();
-    let dirs: Vec<PathBuf> = std::env::split_paths(&path_var).collect();
+    let dirs: Vec<PathBuf> = std::env::split_paths(&path_var)
+        .filter(|d| is_local_path(d))
+        .collect();
 
     KNOWN_TOOLS
         .iter()
